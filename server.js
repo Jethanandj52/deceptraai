@@ -49,10 +49,18 @@ const {
 const app = express();
 
 // ======================================================
+// ENVIRONMENT
+// ======================================================
+
+const isProduction =
+  process.env.NODE_ENV === "production";
+
+// ======================================================
 // TRUST PROXY
 // ======================================================
 //
-// Required for secure cookies behind Vercel's HTTPS proxy.
+// Required when running behind Vercel's HTTPS proxy.
+// This allows secure cookies to work correctly.
 //
 
 app.set("trust proxy", 1);
@@ -67,15 +75,12 @@ connectDB();
 // CORS
 // ======================================================
 //
-// Local example:
+// Supported:
 //
-// CORS_ORIGIN=http://localhost:3000
+// http://localhost:3000
+// http://localhost:5173
 //
-// Vite example:
-//
-// CORS_ORIGIN=http://localhost:5173
-//
-// Production example:
+// Plus production frontend from:
 //
 // CORS_ORIGIN=https://your-frontend.vercel.app
 //
@@ -84,20 +89,14 @@ connectDB();
 // CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://your-frontend.vercel.app
 //
 
-// ======================================================
-// CORS
-// ======================================================
-
 const allowedOrigins = (
-  process.env.CORS_ORIGIN ||
-  ""
+  process.env.CORS_ORIGIN || ""
 )
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Always allow local development origins.
-// Production frontend can be added through CORS_ORIGIN.
+// Always allow local development.
 const localOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
@@ -118,8 +117,13 @@ console.log(
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Requests without an Origin header
-      // such as Postman/server-to-server requests.
+      // Allow requests without Origin header.
+      //
+      // Examples:
+      // Postman
+      // server-to-server requests
+      // direct browser navigation
+      //
       if (!origin) {
         return callback(null, true);
       }
@@ -132,6 +136,8 @@ app.use(
         `[CORS] Blocked origin: ${origin}`
       );
 
+      // Do not throw a CORS error.
+      // Simply don't allow the origin.
       return callback(null, false);
     },
 
@@ -159,27 +165,65 @@ app.use(
 //
 // IMPORTANT FOR VERCEL:
 //
-// Do NOT use the default express-session MemoryStore
-// for production.
+// Do NOT use the default MemoryStore in production.
 //
-// MongoDB is used as the session store so that the
-// session survives between Vercel serverless invocations.
+// MongoDB is used as the session store.
 //
-// Candidate interview flow:
+// Flow:
 //
 // verify
-//   ↓
+//    ↓
 // req.session.interviewId
-//   ↓
+//    ↓
 // MongoDB session store
-//   ↓
+//    ↓
 // start
 //
-// This keeps the verified interview session available.
+// This allows the verified interview session to survive
+// between Vercel serverless invocations.
 //
 
-const isProduction =
-  process.env.NODE_ENV === "production";
+// ======================================================
+// VALIDATE SESSION ENVIRONMENT
+// ======================================================
+
+if (!process.env.SESSION_SECRET) {
+  console.warn(
+    "[session] WARNING: SESSION_SECRET is not set."
+  );
+}
+
+if (!process.env.MONGO_URI) {
+  console.warn(
+    "[session] WARNING: MONGO_URI is not set."
+  );
+}
+
+// ======================================================
+// MONGO SESSION STORE
+// ======================================================
+//
+// connect-mongo v4+ / v5 / v6 uses:
+//
+// MongoStore.create({...})
+//
+// The current package documentation uses this syntax.
+//
+
+const mongoStore = MongoStore.create({
+  mongoUrl: process.env.MONGO_URI,
+
+  collectionName: "sessions",
+
+  ttl: 30 * 60,
+
+  // MongoDB automatically removes expired sessions.
+  autoRemove: "native",
+});
+
+// ======================================================
+// EXPRESS SESSION
+// ======================================================
 
 app.use(
   session({
@@ -191,22 +235,23 @@ app.use(
 
     saveUninitialized: false,
 
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGO_URI,
-
-      collectionName: "sessions",
-
-      ttl: 30 * 60,
-    }),
+    store: mongoStore,
 
     cookie: {
       httpOnly: true,
 
-      // HTTPS is used by Vercel.
+      // Vercel uses HTTPS.
       secure: isProduction,
 
-      // Required for frontend/backend on different
-      // Vercel domains.
+      // Frontend and backend are on different domains
+      // in production.
+      //
+      // Example:
+      //
+      // frontend.vercel.app
+      // backend.vercel.app
+      //
+      // Therefore SameSite=None is required.
       sameSite: isProduction
         ? "none"
         : "lax",
@@ -255,6 +300,7 @@ app.use(
 // http://localhost:8000/uploads/filename
 //
 // IMPORTANT:
+//
 // Vercel serverless filesystem is NOT persistent.
 //
 // This route is kept for local development and
@@ -340,7 +386,7 @@ app.use(
 // POST
 // /api/public/interview/complete
 //
-// Session is used to identify the verified interview.
+// Session identifies the verified interview.
 //
 
 app.use(
@@ -359,8 +405,11 @@ app.use(
 // POST /api/public/interview/answer
 // POST /api/public/interview/complete
 //
-// Mounting another answer system on the same prefix
-// can cause conflicts between two architectures.
+// Mounting another answer system can cause conflicts.
+//
+// const interviewAnswerRoutes = require(
+//   "./routes/interviewAnswerRoutes"
+// );
 //
 // app.use(
 //   "/api/public/interview",
@@ -384,9 +433,12 @@ app.use(errorHandler);
 // ======================================================
 //
 // Vercel does NOT need app.listen().
-// Vercel imports the Express app below.
 //
-// Localhost DOES need app.listen().
+// Local development DOES need app.listen().
+//
+// Vercel imports:
+//
+// module.exports = app
 //
 
 const PORT =
@@ -399,7 +451,7 @@ if (!isProduction) {
     );
 
     console.log(
-      `[server] Allowed CORS origins: ${allowedOrigins.join(
+      `[server] Allowed CORS origins: ${corsOrigins.join(
         ", "
       )}`
     );
