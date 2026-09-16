@@ -1,7 +1,6 @@
 const asyncHandler = require('express-async-handler');
 
 const Interview = require('../models/Interview');
-
 const Candidate = require('../models/Candidate');
 
 const {
@@ -29,10 +28,7 @@ const {
 // Get authenticated interview from session
 // ==========================================
 
-async function getAuthenticatedInterview(
-  req,
-  res
-) {
+async function getAuthenticatedInterview(req, res) {
   if (!req.session || !req.session.interviewId) {
     res.status(401);
 
@@ -40,6 +36,11 @@ async function getAuthenticatedInterview(
       'Please verify your email first'
     );
   }
+
+  console.log(
+    '[PUBLIC INTERVIEW] Session interviewId:',
+    req.session.interviewId
+  );
 
   const interview =
     await Interview.findById(
@@ -57,7 +58,20 @@ async function getAuthenticatedInterview(
     );
   }
 
+  console.log(
+    '[PUBLIC INTERVIEW] Loaded interview:',
+    interview._id.toString(),
+    '| status:',
+    interview.status,
+    '| linkStatus:',
+    interview.linkStatus,
+    '| answers:',
+    interview.answers.length
+  );
+
+  // ==========================================
   // Check interview expiry
+  // ==========================================
 
   if (
     interview.linkExpiresAt &&
@@ -65,7 +79,6 @@ async function getAuthenticatedInterview(
     interview.status !== 'Completed'
   ) {
     interview.status = 'Expired';
-
     interview.linkStatus = 'Expired';
 
     await interview.save();
@@ -116,7 +129,9 @@ const sendVerificationCode =
       email.trim().toLowerCase();
 
 
-    // Find candidate by email
+    // ==========================================
+    // Find candidate
+    // ==========================================
 
     const candidate =
       await Candidate.findOne({
@@ -132,7 +147,9 @@ const sendVerificationCode =
     }
 
 
+    // ==========================================
     // Find latest active interview
+    // ==========================================
 
     const interview =
       await Interview.findOne({
@@ -158,7 +175,9 @@ const sendVerificationCode =
     }
 
 
+    // ==========================================
     // Check interview expiry
+    // ==========================================
 
     if (
       interview.linkExpiresAt &&
@@ -178,7 +197,9 @@ const sendVerificationCode =
     }
 
 
+    // ==========================================
     // Generate 6 digit verification code
+    // ==========================================
 
     const verificationCode =
       Math.floor(
@@ -187,7 +208,9 @@ const sendVerificationCode =
       ).toString();
 
 
-    // Save code
+    // ==========================================
+    // Save verification code
+    // ==========================================
 
     interview.verificationCode =
       verificationCode;
@@ -202,7 +225,9 @@ const sendVerificationCode =
     await interview.save();
 
 
-    // Send code to candidate email
+    // ==========================================
+    // Send verification email
+    // ==========================================
 
     await sendVerificationCodeEmail({
       candidateName:
@@ -246,7 +271,11 @@ const verifyCandidate =
     const normalizedEmail =
       email.trim().toLowerCase();
 
+
+    // ==========================================
     // Find candidate
+    // ==========================================
+
     const candidate =
       await Candidate.findOne({
         email: normalizedEmail,
@@ -260,16 +289,22 @@ const verifyCandidate =
       );
     }
 
-    // Find interview using candidate + code
+
+    // ==========================================
+    // Find interview
+    // ==========================================
+
     const interview =
       await Interview.findOne({
         candidate: candidate._id,
+
         verificationCode:
           verificationCode.trim(),
       }).populate(
         'candidate',
         'name email position'
       );
+
 
     if (!interview) {
       res.status(401);
@@ -279,7 +314,11 @@ const verifyCandidate =
       );
     }
 
+
+    // ==========================================
     // Check code expiry
+    // ==========================================
+
     if (
       !interview.verificationCodeExpiresAt ||
       interview.verificationCodeExpiresAt < new Date()
@@ -291,8 +330,14 @@ const verifyCandidate =
       );
     }
 
+
+    // ==========================================
     // Check completed interview
-    if (interview.status === 'Completed') {
+    // ==========================================
+
+    if (
+      interview.status === 'Completed'
+    ) {
       res.status(409);
 
       throw new Error(
@@ -300,8 +345,9 @@ const verifyCandidate =
       );
     }
 
+
     // ==========================================
-    // SAVE INTERVIEW IN SESSION
+    // Save interview in session
     // ==========================================
 
     req.session.interviewId =
@@ -310,22 +356,32 @@ const verifyCandidate =
     req.session.candidateId =
       candidate._id.toString();
 
+
+    console.log(
+      '[VERIFY] Session interviewId set to:',
+      req.session.interviewId
+    );
+
+
+    // ==========================================
     // Remove used verification code
+    // ==========================================
+
     interview.verificationCode = null;
 
     interview.verificationCodeExpiresAt = null;
 
     await interview.save();
 
+
     // ==========================================
-    // IMPORTANT:
-    // Explicitly save session before response
+    // Explicitly save session
     // ==========================================
 
     req.session.save((err) => {
       if (err) {
         console.error(
-          'Session save error:',
+          '[VERIFY] Session save error:',
           err
         );
 
@@ -334,6 +390,10 @@ const verifyCandidate =
             'Failed to create interview session',
         });
       }
+
+      console.log(
+        '[VERIFY] Session saved successfully'
+      );
 
       return res.json({
         verified: true,
@@ -347,8 +407,9 @@ const verifyCandidate =
     });
   });
 
+
 // ==========================================
-// Start interview
+// POST /interview/start
 // ==========================================
 
 const startInterview =
@@ -382,6 +443,10 @@ const startInterview =
     }
 
 
+    // ==========================================
+    // Set interview status
+    // ==========================================
+
     interview.status =
       'InProgress';
 
@@ -394,6 +459,20 @@ const startInterview =
 
     await interview.save();
 
+
+    console.log(
+      '[START] Interview:',
+      interview._id.toString(),
+      '| status:',
+      interview.status,
+      '| linkStatus:',
+      interview.linkStatus
+    );
+
+
+    // ==========================================
+    // Prepare questions
+    // ==========================================
 
     const questions =
       interview.questions
@@ -426,7 +505,7 @@ const startInterview =
 
 
 // ==========================================
-// Submit answer
+// POST /interview/answer
 // ==========================================
 
 const submitAnswer =
@@ -463,6 +542,10 @@ const submitAnswer =
       Number(questionIndex);
 
 
+    // ==========================================
+    // Find question
+    // ==========================================
+
     const question =
       interview.questions.find(
         (q) =>
@@ -486,7 +569,9 @@ const submitAnswer =
     } = interview.settings;
 
 
-    // Face
+    // ==========================================
+    // Face Analysis
+    // ==========================================
 
     let faceScore = 50;
 
@@ -505,7 +590,9 @@ const submitAnswer =
     }
 
 
-    // Voice
+    // ==========================================
+    // Voice Analysis
+    // ==========================================
 
     let voiceScore = 50;
 
@@ -524,7 +611,9 @@ const submitAnswer =
     }
 
 
-    // Text
+    // ==========================================
+    // Text Analysis
+    // ==========================================
 
     const finalTranscript =
       transcript ||
@@ -550,7 +639,9 @@ const submitAnswer =
     }
 
 
+    // ==========================================
     // Fusion
+    // ==========================================
 
     const {
       finalScore,
@@ -567,7 +658,9 @@ const submitAnswer =
       textScore > 70;
 
 
-    // Replace existing answer
+    // ==========================================
+    // Remove previous answer
+    // ==========================================
 
     interview.answers =
       interview.answers.filter(
@@ -576,7 +669,9 @@ const submitAnswer =
       );
 
 
+    // ==========================================
     // Save answer
+    // ==========================================
 
     interview.answers.push({
       questionIndex: idx,
@@ -621,6 +716,16 @@ const submitAnswer =
     await interview.save();
 
 
+    console.log(
+      '[ANSWER] Interview:',
+      interview._id.toString(),
+      '| question:',
+      idx,
+      '| total answers:',
+      interview.answers.length
+    );
+
+
     res.json({
       received: true,
 
@@ -630,7 +735,7 @@ const submitAnswer =
 
 
 // ==========================================
-// Complete interview
+// POST /interview/complete
 // ==========================================
 
 const completeInterview =
@@ -641,6 +746,31 @@ const completeInterview =
         res
       );
 
+
+    console.log(
+      '[COMPLETE] Interview ID:',
+      interview._id.toString()
+    );
+
+    console.log(
+      '[COMPLETE] Status BEFORE:',
+      interview.status
+    );
+
+    console.log(
+      '[COMPLETE] LinkStatus BEFORE:',
+      interview.linkStatus
+    );
+
+    console.log(
+      '[COMPLETE] Answers BEFORE:',
+      interview.answers.length
+    );
+
+
+    // ==========================================
+    // Prevent empty submission
+    // ==========================================
 
     if (
       !interview.answers.length
@@ -653,15 +783,24 @@ const completeInterview =
     }
 
 
+    // ==========================================
+    // Calculate averages
+    // ==========================================
+
     const avg = (key) =>
       interview.answers.reduce(
         (sum, answer) =>
-          sum + answer[key],
+          sum +
+          Number(answer[key] || 0),
 
         0
       ) /
       interview.answers.length;
 
+
+    // ==========================================
+    // Final multimodal score
+    // ==========================================
 
     const {
       finalScore,
@@ -674,41 +813,134 @@ const completeInterview =
     );
 
 
+    // ==========================================
+    // Update interview
+    // ==========================================
+
     interview.overallScore =
       finalScore;
-
 
     interview.status =
       'Completed';
 
-
     interview.linkStatus =
       'Completed';
-
 
     interview.completedAt =
       new Date();
 
 
+    // ==========================================
+    // Save interview
+    // ==========================================
+
     await interview.save();
 
 
+    console.log(
+      '[COMPLETE] Interview SAVED:',
+      interview._id.toString()
+    );
+
+    console.log(
+      '[COMPLETE] Status AFTER:',
+      interview.status
+    );
+
+    console.log(
+      '[COMPLETE] LinkStatus AFTER:',
+      interview.linkStatus
+    );
+
+    console.log(
+      '[COMPLETE] Answers AFTER:',
+      interview.answers.length
+    );
+
+    console.log(
+      '[COMPLETE] OverallScore:',
+      interview.overallScore
+    );
+
+    console.log(
+      '[COMPLETE] CompletedAt:',
+      interview.completedAt
+    );
+
+
+    // ==========================================
+    // VERIFY DATABASE SAVE
+    // ==========================================
+
+    const savedInterview =
+      await Interview.findById(
+        interview._id
+      ).select(
+        'status linkStatus completedAt overallScore answers'
+      );
+
+
+    console.log(
+      '[COMPLETE] DATABASE VERIFY:',
+      savedInterview
+        ? {
+            id:
+              savedInterview._id.toString(),
+
+            status:
+              savedInterview.status,
+
+            linkStatus:
+              savedInterview.linkStatus,
+
+            completedAt:
+              savedInterview.completedAt,
+
+            overallScore:
+              savedInterview.overallScore,
+
+            answers:
+              savedInterview.answers.length,
+          }
+        : 'Interview not found after save'
+    );
+
+
+    // ==========================================
     // Destroy interview session
+    // ==========================================
 
     req.session.destroy(
       (err) => {
         if (err) {
           console.error(
-            'Session destroy error:',
+            '[COMPLETE] Session destroy error:',
             err
+          );
+        } else {
+          console.log(
+            '[COMPLETE] Interview session destroyed'
           );
         }
       }
     );
 
 
+    // ==========================================
+    // Response
+    // ==========================================
+
     res.json({
       completed: true,
+
+      interviewId:
+        interview._id.toString(),
+
+      status:
+        interview.status,
+
+      overallScore:
+        interview.overallScore,
     });
   });
 
