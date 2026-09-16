@@ -1,0 +1,17 @@
+{
+  "type": "logistic_regression_fusion",
+  "features": [
+    "faceScore(0-1)",
+    "voiceScore(0-1)",
+    "textScore(0-1)"
+  ],
+  "weights": [
+    3.0723965228880115,
+    2.5859621949688862,
+    1.626382214066828
+  ],
+  "bias": -3.565673500201074,
+  "trainedAt": "2026-09-06T04:49:54.591Z",
+  "trainedOn": "synthetic-dataset-v1 (see ml/trainFusionModel.js header comment)",
+  "holdoutAccuracy": 0.8511
+}
