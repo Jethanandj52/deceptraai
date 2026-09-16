@@ -5,6 +5,7 @@ const cors = require("cors");
 const morgan = require("morgan");
 const session = require("express-session");
 const connectMongoModule = require("connect-mongo");
+const { MongoStore } = require("connect-mongo");
 
 const MongoStore =
   connectMongoModule.MongoStore ||
