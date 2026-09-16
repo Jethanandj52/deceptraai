@@ -16,6 +16,7 @@ const authRoutes = require("./routes/authRoutes");
 const candidateRoutes = require("./routes/candidateRoutes");
 const questionRoutes = require("./routes/questionRoutes");
 const interviewRoutes = require("./routes/interviewRoutes");
+
 const publicInterviewRoutes = require(
   "./routes/publicInterviewRoutes"
 );
@@ -55,24 +56,43 @@ connectDB();
 // CORS
 // ======================================================
 
-// Frontend is running on:
-// http://localhost:3000
+// Local example:
+// CORS_ORIGIN=http://localhost:3000
 //
-// If you also want to allow Vite default port 5173,
-// put both in .env:
+// Production example:
+// CORS_ORIGIN=https://your-frontend.vercel.app
 //
-// CORS_ORIGIN=http://localhost:3000,http://localhost:5173
+// Multiple origins:
+// CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://your-frontend.vercel.app
 
 const allowedOrigins = (
   process.env.CORS_ORIGIN ||
   "http://localhost:3000"
 )
   .split(",")
-  .map((origin) => origin.trim());
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      // Allow requests without Origin header
+      // such as Postman/server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error(
+          `CORS policy: Origin ${origin} is not allowed`
+        )
+      );
+    },
+
     credentials: true,
   })
 );
@@ -80,6 +100,22 @@ app.use(
 // ======================================================
 // SESSION
 // ======================================================
+//
+// Localhost:
+// secure = false
+//
+// Vercel/HTTPS:
+// secure = true
+//
+// sameSite:
+// Localhost -> lax
+// Production -> none
+//
+// This is required because the candidate interview
+// flow uses req.session.interviewId.
+//
+
+app.set("trust proxy", 1);
 
 app.use(
   session({
@@ -94,8 +130,13 @@ app.use(
     cookie: {
       httpOnly: true,
 
-      // Localhost development
-      secure: false,
+      secure:
+        process.env.NODE_ENV === "production",
+
+      sameSite:
+        process.env.NODE_ENV === "production"
+          ? "none"
+          : "lax",
 
       maxAge: 30 * 60 * 1000,
     },
@@ -135,12 +176,13 @@ app.use(
 // STATIC UPLOADS
 // ======================================================
 //
-// Uploaded files can be accessed from:
-//
+// Local:
 // http://localhost:8000/uploads/filename
 //
-// Folder:
-// uploads/
+// NOTE:
+// Vercel serverless filesystem is not persistent.
+// This route is kept for local development and
+// compatibility with existing code.
 //
 
 app.use(
@@ -225,14 +267,14 @@ app.use(
 //
 // DO NOT mount interviewAnswerRoutes here.
 //
-// Your publicInterviewController already handles answers:
+// publicInterviewController already handles:
 //
 // POST /api/public/interview/answer
+// POST /api/public/interview/complete
 //
-// Mounting another answer system on the same prefix can
-// cause conflicts between two different architectures.
+// Mounting another answer system on the same prefix
+// can cause conflicts between two architectures.
 //
-// ======================================================
 
 // app.use(
 //   "/api/public/interview",
@@ -252,18 +294,36 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ======================================================
-// START SERVER
+// LOCAL SERVER
 // ======================================================
+//
+// Vercel does NOT need app.listen().
+// Vercel imports the Express app below.
+//
+// Localhost DOES need app.listen().
+//
 
 const PORT =
   process.env.PORT || 8000;
 
-app.listen(PORT, () => {
-  console.log(
-    `[server] DeceptionAI API listening on http://localhost:${PORT}`
-  );
+if (
+  process.env.NODE_ENV !== "production"
+) {
+  app.listen(PORT, () => {
+    console.log(
+      `[server] DeceptionAI API listening on http://localhost:${PORT}`
+    );
 
-  console.log(
-    `[server] Allowed CORS origins: ${allowedOrigins.join(", ")}`
-  );
-});
+    console.log(
+      `[server] Allowed CORS origins: ${allowedOrigins.join(
+        ", "
+      )}`
+    );
+  });
+}
+
+// ======================================================
+// VERCEL EXPORT
+// ======================================================
+
+module.exports = app;
