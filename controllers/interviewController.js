@@ -380,8 +380,8 @@ const sendInterviewEmail =
     }
 
     const frontendUrl =
-      process.env.FRONTEND_URL ||
-      'http://localhost:5173';
+      process.env.CORS_ORIGIN ||
+      'http://localhost:3000';
 
     const interviewLink =
       `${frontendUrl}/home`;
