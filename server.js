@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const session = require("express-session");
+const MongoStore = require("connect-mongo");
 const path = require("path");
 
 const connectDB = require("./config/db");
@@ -24,6 +25,7 @@ const publicInterviewRoutes = require(
 // IMPORTANT:
 // interviewAnswerRoutes is NOT used here because
 // publicInterviewController already handles:
+//
 // /answer
 // /complete
 //
@@ -47,6 +49,15 @@ const {
 const app = express();
 
 // ======================================================
+// TRUST PROXY
+// ======================================================
+//
+// Required for secure cookies behind Vercel's HTTPS proxy.
+//
+
+app.set("trust proxy", 1);
+
+// ======================================================
 // DATABASE
 // ======================================================
 
@@ -55,15 +66,23 @@ connectDB();
 // ======================================================
 // CORS
 // ======================================================
-
+//
 // Local example:
+//
 // CORS_ORIGIN=http://localhost:3000
 //
+// Vite example:
+//
+// CORS_ORIGIN=http://localhost:5173
+//
 // Production example:
+//
 // CORS_ORIGIN=https://your-frontend.vercel.app
 //
 // Multiple origins:
+//
 // CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://your-frontend.vercel.app
+//
 
 const allowedOrigins = (
   process.env.CORS_ORIGIN ||
@@ -76,8 +95,8 @@ const allowedOrigins = (
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests without Origin header
-      // such as Postman/server-to-server requests
+      // Allow requests without Origin header,
+      // such as Postman/server-to-server requests.
       if (!origin) {
         return callback(null, true);
       }
@@ -101,21 +120,29 @@ app.use(
 // SESSION
 // ======================================================
 //
-// Localhost:
-// secure = false
+// IMPORTANT FOR VERCEL:
 //
-// Vercel/HTTPS:
-// secure = true
+// Do NOT use the default express-session MemoryStore
+// for production.
 //
-// sameSite:
-// Localhost -> lax
-// Production -> none
+// MongoDB is used as the session store so that the
+// session survives between Vercel serverless invocations.
 //
-// This is required because the candidate interview
-// flow uses req.session.interviewId.
+// Candidate interview flow:
+//
+// verify
+//   ↓
+// req.session.interviewId
+//   ↓
+// MongoDB session store
+//   ↓
+// start
+//
+// This keeps the verified interview session available.
 //
 
-app.set("trust proxy", 1);
+const isProduction =
+  process.env.NODE_ENV === "production";
 
 app.use(
   session({
@@ -127,17 +154,27 @@ app.use(
 
     saveUninitialized: false,
 
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGO_URI,
+
+      collectionName: "sessions",
+
+      ttl: 30 * 60,
+    }),
+
     cookie: {
       httpOnly: true,
 
-      secure:
-        process.env.NODE_ENV === "production",
+      // HTTPS is used by Vercel.
+      secure: isProduction,
 
-      sameSite:
-        process.env.NODE_ENV === "production"
-          ? "none"
-          : "lax",
+      // Required for frontend/backend on different
+      // Vercel domains.
+      sameSite: isProduction
+        ? "none"
+        : "lax",
 
+      // 30 minutes.
       maxAge: 30 * 60 * 1000,
     },
   })
@@ -166,7 +203,7 @@ app.use(
 
 app.use(
   morgan(
-    process.env.NODE_ENV === "production"
+    isProduction
       ? "combined"
       : "dev"
   )
@@ -177,10 +214,12 @@ app.use(
 // ======================================================
 //
 // Local:
+//
 // http://localhost:8000/uploads/filename
 //
-// NOTE:
-// Vercel serverless filesystem is not persistent.
+// IMPORTANT:
+// Vercel serverless filesystem is NOT persistent.
+//
 // This route is kept for local development and
 // compatibility with existing code.
 //
@@ -246,12 +285,23 @@ app.use(
 //
 // Public interview flow:
 //
-// GET    /api/public/interview
-// POST   /api/public/interview/send-code
-// POST   /api/public/interview/verify
-// POST   /api/public/interview/start
-// POST   /api/public/interview/answer
-// POST   /api/public/interview/complete
+// GET
+// /api/public/interview
+//
+// POST
+// /api/public/interview/send-code
+//
+// POST
+// /api/public/interview/verify
+//
+// POST
+// /api/public/interview/start
+//
+// POST
+// /api/public/interview/answer
+//
+// POST
+// /api/public/interview/complete
 //
 // Session is used to identify the verified interview.
 //
@@ -275,7 +325,6 @@ app.use(
 // Mounting another answer system on the same prefix
 // can cause conflicts between two architectures.
 //
-
 // app.use(
 //   "/api/public/interview",
 //   interviewAnswerRoutes
@@ -306,9 +355,7 @@ app.use(errorHandler);
 const PORT =
   process.env.PORT || 8000;
 
-if (
-  process.env.NODE_ENV !== "production"
-) {
+if (!isProduction) {
   app.listen(PORT, () => {
     console.log(
       `[server] DeceptionAI API listening on http://localhost:${PORT}`
