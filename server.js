@@ -84,35 +84,72 @@ connectDB();
 // CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://your-frontend.vercel.app
 //
 
+// ======================================================
+// CORS
+// ======================================================
+
 const allowedOrigins = (
   process.env.CORS_ORIGIN ||
-  "http://localhost:3000"
+  ""
 )
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Always allow local development origins.
+// Production frontend can be added through CORS_ORIGIN.
+const localOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+];
+
+const corsOrigins = [
+  ...new Set([
+    ...localOrigins,
+    ...allowedOrigins,
+  ]),
+];
+
+console.log(
+  "[server] CORS allowed origins:",
+  corsOrigins
+);
+
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests without Origin header,
+      // Requests without an Origin header
       // such as Postman/server-to-server requests.
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      if (corsOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      return callback(
-        new Error(
-          `CORS policy: Origin ${origin} is not allowed`
-        )
+      console.log(
+        `[CORS] Blocked origin: ${origin}`
       );
+
+      return callback(null, false);
     },
 
     credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
