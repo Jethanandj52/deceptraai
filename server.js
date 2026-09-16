@@ -5,19 +5,29 @@ const cors = require("cors");
 const morgan = require("morgan");
 const session = require("express-session");
 const connectMongoModule = require("connect-mongo");
-const { MongoStore } = require("connect-mongo");
+const path = require("path");
+
+// ======================================================
+// MONGO STORE
+// ======================================================
 
 const MongoStore =
   connectMongoModule.MongoStore ||
   connectMongoModule.default ||
   connectMongoModule;
 
-if (!MongoStore || typeof MongoStore.create !== "function") {
+if (
+  !MongoStore ||
+  typeof MongoStore.create !== "function"
+) {
   throw new Error(
     "connect-mongo did not expose MongoStore.create(). Check installed connect-mongo version."
   );
 }
-const path = require("path");
+
+// ======================================================
+// DATABASE
+// ======================================================
 
 const connectDB = require("./config/db");
 
@@ -38,8 +48,8 @@ const publicInterviewRoutes = require(
 // interviewAnswerRoutes is NOT used here because
 // publicInterviewController already handles:
 //
-// /answer
-// /complete
+// POST /answer
+// POST /complete
 //
 // const interviewAnswerRoutes = require(
 //   "./routes/interviewAnswerRoutes"
@@ -71,14 +81,14 @@ const isProduction =
 // TRUST PROXY
 // ======================================================
 //
-// Required when running behind Vercel's HTTPS proxy.
-// This allows secure cookies to work correctly.
+// Required behind Vercel's HTTPS proxy.
+// Allows secure cookies to work correctly.
 //
 
 app.set("trust proxy", 1);
 
 // ======================================================
-// DATABASE
+// DATABASE CONNECTION
 // ======================================================
 
 connectDB();
@@ -87,19 +97,21 @@ connectDB();
 // CORS
 // ======================================================
 //
-// Supported:
+// Supports:
 //
-// http://localhost:3000
-// http://localhost:5173
+// 1. FRONTEND_URL
+// 2. CORS_ORIGIN
+// 3. Local development
 //
-// Plus production frontend from:
+// Example:
 //
-// CORS_ORIGIN=https://your-frontend.vercel.app
+// FRONTEND_URL=https://your-frontend.vercel.app
 //
-// Multiple origins:
+// CORS_ORIGIN=http://localhost:3000,http://localhost:5173
 //
-// CORS_ORIGIN=http://localhost:3000,http://localhost:5173,https://your-frontend.vercel.app
-//
+
+const frontendUrl =
+  (process.env.FRONTEND_URL || "").trim();
 
 const allowedOrigins = (
   process.env.CORS_ORIGIN || ""
@@ -108,7 +120,6 @@ const allowedOrigins = (
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Always allow local development.
 const localOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
@@ -117,6 +128,7 @@ const localOrigins = [
 const corsOrigins = [
   ...new Set([
     ...localOrigins,
+    ...(frontendUrl ? [frontendUrl] : []),
     ...allowedOrigins,
   ]),
 ];
@@ -148,8 +160,8 @@ app.use(
         `[CORS] Blocked origin: ${origin}`
       );
 
-      // Do not throw a CORS error.
-      // Simply don't allow the origin.
+      // Do not throw an error.
+      // Simply do not allow this origin.
       return callback(null, false);
     },
 
@@ -172,31 +184,7 @@ app.use(
 );
 
 // ======================================================
-// SESSION
-// ======================================================
-//
-// IMPORTANT FOR VERCEL:
-//
-// Do NOT use the default MemoryStore in production.
-//
-// MongoDB is used as the session store.
-//
-// Flow:
-//
-// verify
-//    ↓
-// req.session.interviewId
-//    ↓
-// MongoDB session store
-//    ↓
-// start
-//
-// This allows the verified interview session to survive
-// between Vercel serverless invocations.
-//
-
-// ======================================================
-// VALIDATE SESSION ENVIRONMENT
+// SESSION ENVIRONMENT VALIDATION
 // ======================================================
 
 if (!process.env.SESSION_SECRET) {
@@ -215,11 +203,10 @@ if (!process.env.MONGO_URI) {
 // MONGO SESSION STORE
 // ======================================================
 //
-// connect-mongo v4+ / v5 / v6 uses:
+// MongoDB stores Express sessions.
 //
-// MongoStore.create({...})
-//
-// The current package documentation uses this syntax.
+// This is required for Vercel/serverless because
+// MemoryStore is not reliable across serverless invocations.
 //
 
 const mongoStore = MongoStore.create({
@@ -228,6 +215,7 @@ const mongoStore = MongoStore.create({
   ttl: 30 * 60,
   autoRemove: "native",
 });
+
 // ======================================================
 // EXPRESS SESSION
 // ======================================================
@@ -247,18 +235,11 @@ app.use(
     cookie: {
       httpOnly: true,
 
-      // Vercel uses HTTPS.
+      // Vercel production uses HTTPS.
       secure: isProduction,
 
       // Frontend and backend are on different domains
       // in production.
-      //
-      // Example:
-      //
-      // frontend.vercel.app
-      // backend.vercel.app
-      //
-      // Therefore SameSite=None is required.
       sameSite: isProduction
         ? "none"
         : "lax",
@@ -302,14 +283,12 @@ app.use(
 // STATIC UPLOADS
 // ======================================================
 //
-// Local:
+// Local development:
 //
 // http://localhost:8000/uploads/filename
 //
-// IMPORTANT:
-//
-// Vercel serverless filesystem is NOT persistent.
-//
+// NOTE:
+// Vercel serverless filesystem is not persistent.
 // This route is kept for local development and
 // compatibility with existing code.
 //
@@ -442,10 +421,6 @@ app.use(errorHandler);
 // Vercel does NOT need app.listen().
 //
 // Local development DOES need app.listen().
-//
-// Vercel imports:
-//
-// module.exports = app
 //
 
 const PORT =
