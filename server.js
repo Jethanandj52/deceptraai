@@ -4,7 +4,18 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const session = require("express-session");
-const { MongoStore } = require("connect-mongo");
+const connectMongoModule = require("connect-mongo");
+
+const MongoStore =
+  connectMongoModule.MongoStore ||
+  connectMongoModule.default ||
+  connectMongoModule;
+
+if (!MongoStore || typeof MongoStore.create !== "function") {
+  throw new Error(
+    "connect-mongo did not expose MongoStore.create(). Check installed connect-mongo version."
+  );
+}
 const path = require("path");
 
 const connectDB = require("./config/db");
@@ -212,15 +223,10 @@ if (!process.env.MONGO_URI) {
 
 const mongoStore = MongoStore.create({
   mongoUrl: process.env.MONGO_URI,
-
   collectionName: "sessions",
-
   ttl: 30 * 60,
-
-  // MongoDB automatically removes expired sessions.
   autoRemove: "native",
 });
-
 // ======================================================
 // EXPRESS SESSION
 // ======================================================
